@@ -18,6 +18,10 @@ from scipy import signal as scipy_signal
 from direction import DirectionEstimate, estimate_direction
 
 
+# Minimum share of total cross-band energy a band must carry before its
+# direction estimate is trusted.
+MIN_BAND_ENERGY_FRACTION = 0.05
+
 BANDS = [
     ("sub_low", 20, 150),
     ("low", 150, 500),
@@ -98,12 +102,25 @@ class BandDirectionEstimator:
         filters = self._filters_by_rate[sample_rate]
 
         directions: Dict[str, DirectionEstimate] = {}
+        band_energy: Dict[str, float] = {}
         for band_name, sos in filters.items():
-            # Filter the multichannel window into this band's frequency range, 
+            # Filter the multichannel window into this band's frequency range,
             # then estimate direction from the filtered signal.
             filtered = scipy_signal.sosfiltfilt(sos, multichannel_window, axis=0)
             band_levels = list(np.sqrt(np.mean(filtered ** 2, axis=0)))
             directions[band_name] = estimate_direction(band_levels, channel_labels)
+            band_energy[band_name] = sum(band_levels)
+
+        # A band that carries only a sliver of the total energy across all bands
+        # can still produce a confident-looking direction (e.g. stereo pan is a
+        # ratio, independent of absolute level) purely from noise.
+        total_energy = sum(band_energy.values())
+        if total_energy > 0:
+            for band_name, estimate in directions.items():
+                if estimate.available and band_energy[band_name] / total_energy < MIN_BAND_ENERGY_FRACTION:
+                    directions[band_name] = DirectionEstimate(
+                        available=False, mode="none", label="low energy band"
+                    )
 
         return BandDirections(directions=directions)
 
