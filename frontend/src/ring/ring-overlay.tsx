@@ -7,9 +7,9 @@ import { dataForRing } from './sound-direction-to-ring';
 const SMOOTHING = 0.25;
 const IDLE_TIMER = 1500; // in ms
 const CENTER = 200;
-const BASE_RADIUS = 85;
-const MIN_THICKNESS = 8;
-const MAX_THICKNESS = 40;
+const BASE_RADIUS = 120;
+const MIN_THICKNESS = 10;
+const MAX_THICKNESS = 100;
 const SEGMENTS = 180;
 
 function RingOverlay() {

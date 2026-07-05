@@ -35,40 +35,48 @@ body {
 }
 
 .ring-main {
-  fill-rule: evenodd;
-}
-
-.ring-main {
-  fill: rgba(120, 220, 255, 0.85);
+  fill: #23C9FF;
 }
 
 .ring-controls {
   position: absolute;
-  top: 24px;
-  right: 24px;
+  bottom: 20px;
+  left: 20px;
   display: flex;
   gap: 8px;
   pointer-events: none;
 }
 
+@keyframes font-animation {
+  0%   { font-family: 'Redaction', sans-serif; }
+  20%  { font-family: 'Redaction 10', sans-serif; }
+  40%  { font-family: 'Redaction 35', sans-serif; }
+  60%  { font-family: 'Redaction 70', sans-serif; }
+  80%  { font-family: 'Redaction 100', sans-serif; }
+  100% { font-family: 'Redaction', sans-serif; }
+}
+
 .ring-btn {
   pointer-events: auto;
   font-family: 'Redaction 35', sans-serif;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(20, 24, 30, 0.55);
-  transition: background 0.15s ease, opacity 0.15s ease;
+  font-size: 20px;
+  color: white;
+  background: black;
+  transition: background 0.15s ease;
+  width: 70px;
+  height: 30px;
 }
 
 .ring-btn:hover:not(:disabled) {
-  background: rgba(40, 46, 56, 0.75);
+  background: grey;
+  animation: font-animation 2s steps(4) infinite;
 }
 
 .ring-btn:disabled {
-  opacity: 0.35;
   cursor: default;
 }
 
 .ring-btn-close:hover:not(:disabled) {
-  background: rgba(90, 30, 30, 0.75);
+  background: grey;
+  animation: font-animation 2s steps(4) infinite;
 }
