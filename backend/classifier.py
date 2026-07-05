@@ -7,8 +7,9 @@ score, for the overlay to display as subtitle text.
 
 """
 
+import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -29,13 +30,25 @@ SCORE_SMOOTHING_ALPHA = 0.4
 SWITCH_MARGIN = 0.05
 
 DEFAULT_WINDOW_SECONDS = 1.0
-DEFAULT_HOP_SECONDS = 0.5  # how often a new window becomes available
+DEFAULT_HOP_SECONDS = 0.1  # how often a new window becomes available
+
+# YAMNet labels that describe an absence of sound rather than a sound worth
+# surfacing as an event. These are never useful subtitle text.
+EXCLUDED_LABELS = {"Silence"}
+
+# How long a label must stay continuously above MIN_CONFIDENCE before it's
+# considered ambience (background rain, engine drone, crowd noise, etc.)
+# rather than a discrete event worth surfacing. Short one-off sounds never
+# reach this, so it only catches things that just won't stop.
+AMBIENT_PERSISTENCE_SECONDS = 4.0
 
 
 @dataclass
 class SoundDetection:
     label: str
     confidence: float
+    active_seconds: float = 0.0   # how long this label has been continuously active
+    is_ambient: bool = False      # True once active_seconds crosses AMBIENT_PERSISTENCE_SECONDS
 
 
 @dataclass
@@ -112,6 +125,8 @@ class YamNetClassifier:
         self._class_names: List[str] = []
         self._smoothed_scores: Optional[np.ndarray] = None  # persists across classify() calls
         self._sticky_leader_idx: Optional[int] = None  # persists across classify() calls
+        self._active_since: Dict[int, float] = {}  # class idx -> monotonic time it became continuously active
+        self._excluded_idx: set = set()  # class indices for EXCLUDED_LABELS, populated in _ensure_loaded
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
@@ -124,11 +139,18 @@ class YamNetClassifier:
         class_map_path = self._model.class_map_path().numpy().decode("utf-8")
         with open(class_map_path) as f:
             self._class_names = [row["display_name"] for row in csv.DictReader(f)]
+        self._excluded_idx = {
+            i for i, name in enumerate(self._class_names) if name in EXCLUDED_LABELS
+        }
 
     def classify(self, mono_16k: np.ndarray) -> ClassificationResult:
         self._ensure_loaded()
         scores, _embeddings, _spectrogram = self._model(mono_16k)
         window_scores = scores.numpy().mean(axis=0)
+        # Zero out excluded labels (e.g. "Silence") before smoothing/leader
+        # selection so they can never be picked as a detection or sticky leader.
+        for idx in self._excluded_idx:
+            window_scores[idx] = 0.0
 
         # Smooth across windows (see SCORE_SMOOTHING_ALPHA) before picking
         # detections.
@@ -155,12 +177,31 @@ class YamNetClassifier:
             if candidate_score > leader_score + SWITCH_MARGIN or leader_score < MIN_CONFIDENCE:
                 self._sticky_leader_idx = candidate_idx
 
+        now = time.monotonic()
+        above_threshold = {
+            int(idx) for idx in order if float(self._smoothed_scores[idx]) >= MIN_CONFIDENCE
+        }
+        # Start/stop the continuous-activity clock for each label so persistent
+        # background sound (ambience) can be told apart from discrete events.
+        for idx in above_threshold:
+            if idx not in self._active_since:
+                self._active_since[idx] = now
+        for idx in list(self._active_since):
+            if idx not in above_threshold:
+                del self._active_since[idx]
+
         detections: List[SoundDetection] = []
         for idx in order[:MAX_DETECTIONS]:
             confidence = float(self._smoothed_scores[idx])
             if confidence < MIN_CONFIDENCE:
                 break
-            detections.append(SoundDetection(label=self._class_names[idx], confidence=confidence))
+            active_seconds = now - self._active_since[int(idx)]
+            detections.append(SoundDetection(
+                label=self._class_names[idx],
+                confidence=confidence,
+                active_seconds=active_seconds,
+                is_ambient=active_seconds >= AMBIENT_PERSISTENCE_SECONDS,
+            ))
 
         leader_label = self._class_names[self._sticky_leader_idx]
         for i, detection in enumerate(detections):

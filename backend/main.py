@@ -16,7 +16,9 @@ Single entry point wiring the full pipeline together:
 Windows only.
 """
 
+import queue
 import sys
+import threading
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -36,27 +38,91 @@ from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifie
 from direction import DirectionEstimate, estimate_direction
 from server import SubtitleServer, build_event
 
+# A persistent sound is only treated as ambience if it's ALSO spatially
+# diffuse (direction confidence below this). A radio/speaker playing music
+# is persistent but still comes from one fixed direction (high confidence),
+# so it's correctly left alone; rain, wind, and crowd murmur are both
+# persistent and diffuse (no single source location), so they get suppressed.
+AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD = 0.4
+
+
+def _is_diffuse(direction) -> bool:
+    return (not direction.available) or direction.confidence < AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD
+
 
 def process_block(
     levels: List[float],
     labels: List[str],
     raw_block: np.ndarray,
     audio_buffer: RollingAudioBuffer,
-    classifier: YamNetClassifier,
-    band_estimator: BandDirectionEstimator,
-) -> Tuple[DirectionEstimate, Optional[ClassificationResult], Optional[BandDirections]]:
-    # Process a single block of audio: estimate direction, classify sound, and
-    # estimate per-band directions. Returns a tuple of (direction, classification, band_directions).
+) -> Tuple[DirectionEstimate, Optional[np.ndarray]]:
+    # Process a single block of audio: estimate direction (cheap, runs every block)
+    # and hand off a window for classification when one becomes available.
     direction = estimate_direction(levels, labels)
-
-    classification = None
-    band_directions = None
     window = audio_buffer.add_block(raw_block)
-    if window is not None:
-        classification = classifier.classify_native_rate(window, audio_buffer.sample_rate)
-        band_directions = band_estimator.estimate(window, labels, audio_buffer.sample_rate)
+    return direction, window
 
-    return direction, classification, band_directions
+
+class ClassificationWorker:
+    # Runs YAMNet classification + per-band direction estimation on a background
+    # thread, decoupled from the audio capture loop.
+    def __init__(
+        self,
+        classifier: YamNetClassifier,
+        band_estimator: BandDirectionEstimator,
+        labels: List[str],
+        sample_rate: int,
+        server: SubtitleServer,
+    ):
+        self._classifier = classifier
+        self._band_estimator = band_estimator
+        self._labels = labels
+        self._sample_rate = sample_rate
+        self._server = server
+        self._queue: "queue.Queue[np.ndarray]" = queue.Queue(maxsize=1)
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self.last_classification: Optional[ClassificationResult] = None
+        self.last_band_directions: Optional[BandDirections] = None
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+
+    def submit(self, window: np.ndarray) -> None:
+        # Drop the pending window (if any) in favor of the newest one, so the
+        # worker is always processing the freshest audio available.
+        try:
+            self._queue.get_nowait()
+        except queue.Empty:
+            pass
+        self._queue.put_nowait(window)
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                window = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            classification = self._classifier.classify_native_rate(window, self._sample_rate)
+            band_directions = self._band_estimator.estimate(window, self._labels, self._sample_rate)
+            self.last_classification = classification
+            self.last_band_directions = band_directions
+
+            if classification.available:
+                for d in classification.detections:
+                    sound_dir = band_directions.for_label(d.label)
+                    # Sounds that have been continuously present for a while AND
+                    # have no clear source direction (rain, wind, crowd noise, ...)
+                    # are ambience, not a discrete event worth surfacing -- skip
+                    # publishing them so they don't clog the overlay.
+                    if d.is_ambient and _is_diffuse(sound_dir):
+                        continue
+                    self._server.publish(build_event(d.label, d.confidence, sound_dir))
 
 
 def main() -> None:
@@ -65,8 +131,7 @@ def main() -> None:
     band_estimator = BandDirectionEstimator()
     server = SubtitleServer()
     server.start()
-    last_classification: Optional[ClassificationResult] = None
-    last_band_directions: Optional[BandDirections] = None
+    worker: Optional[ClassificationWorker] = None
 
     try:
         devices = list_loopback_devices(p)
@@ -78,6 +143,8 @@ def main() -> None:
         sample_rate = int(device["defaultSampleRate"])
         labels = channel_labels_for(channels)
         audio_buffer = RollingAudioBuffer(sample_rate=sample_rate, channels=channels)
+        worker = ClassificationWorker(classifier, band_estimator, labels, sample_rate, server)
+        worker.start()
 
         print(f"\nCapturing from: {device['name']}")
         print(f"Channels: {channels}  |  Sample rate: {sample_rate} Hz")
@@ -101,19 +168,9 @@ def main() -> None:
                 levels = list(rms_per_channel(audio))
                 levels_db = [rms_to_dbfs(lvl) for lvl in levels]
 
-                direction, classification, band_directions = process_block(
-                    levels, labels, audio, audio_buffer, classifier, band_estimator
-                )
-                if classification is not None:
-                    last_classification = classification
-                if band_directions is not None:
-                    last_band_directions = band_directions
-
-                # Publish events to the WebSocket server for any detected sounds with available direction estimates.
-                if classification is not None and classification.available and band_directions is not None:
-                    for d in classification.detections:
-                        sound_dir = band_directions.for_label(d.label)
-                        server.publish(build_event(d.label, d.confidence, sound_dir))
+                direction, window = process_block(levels, labels, audio, audio_buffer)
+                if window is not None:
+                    worker.submit(window)
 
                 bars = "  ".join(
                     f"{label}:{level_bar(db)}"
@@ -125,6 +182,8 @@ def main() -> None:
                     else direction.label
                 )
 
+                last_classification = worker.last_classification
+                last_band_directions = worker.last_band_directions
                 if last_classification is not None and last_classification.available:
                     parts = []
                     for d in last_classification.detections:
@@ -132,8 +191,12 @@ def main() -> None:
                             sound_dir = last_band_directions.for_label(d.label)
                             dir_str = sound_dir.label if sound_dir.available else "?"
                         else:
+                            sound_dir = None
                             dir_str = "?"
-                        parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}")
+                        ambient_str = (
+                            " [ambient]" if d.is_ambient and sound_dir is not None and _is_diffuse(sound_dir) else ""
+                        )
+                        parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}{ambient_str}")
                     sound_str = " | ".join(parts)
                 else:
                     sound_str = "..."
@@ -152,6 +215,8 @@ def main() -> None:
             stream.close()
 
     finally:
+        if worker is not None:
+            worker.stop()
         server.stop()
         p.terminate()
 
