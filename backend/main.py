@@ -1,10 +1,17 @@
 """
 main.py
 
-Single entry point wiring the currently-implemented pipeline stages together
+Single entry point wiring the full pipeline together:
 
-self_noise_filter.py is implemented but parked out of this pipeline for
-now
+    WASAPI loopback capture (audio_capture.py)
+            |
+    Direction estimate (direction.py)
+            |
+    Sound classification (classifier.py)
+            |
+    Per-band direction (band_direction.py)
+            |
+    WebSocket broadcast (server.py)
 
 Windows only.
 """
@@ -27,6 +34,7 @@ from audio_capture import (
 from band_direction import BandDirectionEstimator, BandDirections
 from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifier
 from direction import DirectionEstimate, estimate_direction
+from server import SubtitleServer, build_event
 
 
 def process_block(
@@ -37,8 +45,8 @@ def process_block(
     classifier: YamNetClassifier,
     band_estimator: BandDirectionEstimator,
 ) -> Tuple[DirectionEstimate, Optional[ClassificationResult], Optional[BandDirections]]:
-    # Estimate direction from the current RMS levels, classify the current audio window if 
-    # enough audio has accumulated, and estimate band directions if a window is available.
+    # Process a single block of audio: estimate direction, classify sound, and
+    # estimate per-band directions. Returns a tuple of (direction, classification, band_directions).
     direction = estimate_direction(levels, labels)
 
     classification = None
@@ -55,6 +63,8 @@ def main() -> None:
     p = pyaudio.PyAudio()
     classifier = YamNetClassifier()
     band_estimator = BandDirectionEstimator()
+    server = SubtitleServer()
+    server.start()
     last_classification: Optional[ClassificationResult] = None
     last_band_directions: Optional[BandDirections] = None
 
@@ -71,6 +81,7 @@ def main() -> None:
 
         print(f"\nCapturing from: {device['name']}")
         print(f"Channels: {channels}  |  Sample rate: {sample_rate} Hz")
+        print(f"Overlay connects to: ws://{server.host}:{server.port}")
         print("Loading YAMNet on first classification (downloads on first run)...")
         print("Press Ctrl+C to stop.\n")
 
@@ -97,6 +108,12 @@ def main() -> None:
                     last_classification = classification
                 if band_directions is not None:
                     last_band_directions = band_directions
+
+                # Publish events to the WebSocket server for any detected sounds with available direction estimates.
+                if classification is not None and classification.available and band_directions is not None:
+                    for d in classification.detections:
+                        sound_dir = band_directions.for_label(d.label)
+                        server.publish(build_event(d.label, d.confidence, sound_dir))
 
                 bars = "  ".join(
                     f"{label}:{level_bar(db)}"
@@ -127,8 +144,6 @@ def main() -> None:
                     flush=True,
                 )
 
-                # server.py not implemented yet.
-
         except KeyboardInterrupt:
             print("\nStopping...")
 
@@ -137,6 +152,7 @@ def main() -> None:
             stream.close()
 
     finally:
+        server.stop()
         p.terminate()
 
 
