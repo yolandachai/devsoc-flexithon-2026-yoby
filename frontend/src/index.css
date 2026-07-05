@@ -1,8 +1,63 @@
-body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
-  margin: auto;
-  max-width: 38rem;
-  padding: 2rem;
+@import './fonts.css';
+
+/* Menu title */
+h1 {
+  font-family: 'Redaction 70', sans-serif;
+  font-size: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+/* Overlays title */
+h2 {
+  font-family: 'Redaction 70', sans-serif;
+  font-size: 35px;
+  margin-left: 3%;
+  margin-bottom: 2px;
+}
+
+/* Launch Overlay Buttons */
+button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  margin-left: 7%;
+  display: flex;
+  justify-content: center;
+}
+
+@keyframes font-animation {
+  0%   { font-family: 'Redaction', sans-serif; }
+  20%  { font-family: 'Redaction 10', sans-serif; }
+  40%  { font-family: 'Redaction 35', sans-serif; }
+  60%  { font-family: 'Redaction 70', sans-serif; }
+  80%  { font-family: 'Redaction 100', sans-serif; }
+  100% { font-family: 'Redaction', sans-serif; }
+}
+
+button#openBloomBtn {
+  font-family: 'Redaction 50', sans-serif;
+  font-size: 50px;
+}
+button#openBloomBtn:hover {
+  transform: translateY(-2px) scale(1.2);
+  animation: font-animation 2s steps(4) infinite;
+}
+
+button#openRingBtn {
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 50px;
+}
+button#openRingBtn:hover {
+  transform: translateY(-2px) scale(1.2);
+  animation: font-animation 2s steps(4) infinite;
+}
+
+button#openCompassBtn {
+  font-family: 'Redaction 70', sans-serif;
+  font-size: 50px;
+}
+button#openCompassBtn:hover {
+  transform: translateY(-2px) scale(1.2);
+  animation: font-animation 2s steps(4) infinite;
 }
