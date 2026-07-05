@@ -68,6 +68,11 @@ button#openCompassBtn:hover {
   animation: font-animation 2s steps(4) infinite;
 }
 
+/* highlights a menu button whose overlay is currently open */
+button.active {
+  opacity: 0.5;
+}
+
 /* close menu button */
 
 .close-menu-btn {

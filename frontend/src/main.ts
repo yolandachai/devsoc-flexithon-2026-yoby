@@ -216,7 +216,6 @@ function openOverlayWindow(name: string) {
   isMenuOpen = false;
   menuWindow?.hide();
   menuWindow?.setAlwaysOnTop(false);
-  quitIfNoVisibleWindows();
 
   // pin ring overlay to the bottom left of hte screen
   const RING_WINDOW_SIZE = 360;
@@ -271,13 +270,17 @@ function openOverlayWindow(name: string) {
 
   // win.webContents.openDevTools();
 
-  win.on('closed', () => overlayWindows.delete(name));
+  win.on('closed', () => {
+    overlayWindows.delete(name);
+    notifyOverlayState(name, false);
+  });
   overlayWindows.set(name, win);
+  notifyOverlayState(name, true);
 }
 
 /**
  * closes overlay windows
- * @param name 
+ * @param name
  */
 function closeOverlayWindow(name: string) {
   const win = overlayWindows.get(name);
@@ -285,6 +288,29 @@ function closeOverlayWindow(name: string) {
     win.close();
   }
   quitIfNoVisibleWindows();
+}
+
+/**
+ * toggle overlay windows from menu window
+ * @param name
+ */
+function toggleOverlayWindow(name: string) {
+  if (overlayWindows.has(name)) {
+    closeOverlayWindow(name);
+  } else {
+    openOverlayWindow(name);
+  }
+}
+
+/**
+ * tells the menu window whether a given overlay is currently open
+ * @param name
+ * @param isOpen
+ */
+function notifyOverlayState(name: string, isOpen: boolean) {
+  if (menuWindow && !menuWindow.isDestroyed()) {
+    menuWindow.webContents.send('overlay-state-changed', name, isOpen);
+  }
 }
 
 /**
@@ -297,6 +323,18 @@ ipcMain.on('open-overlay', (_event, name: string) => {
 
 ipcMain.on('close-overlay', (_event, name: string) => {
   closeOverlayWindow(name);
+});
+
+ipcMain.on('toggle-overlay', (_event, name: string) => {
+  toggleOverlayWindow(name);
+});
+
+ipcMain.handle('get-overlay-states', () => {
+  const states: Record<string, boolean> = {};
+  for (const name of Object.keys(OVERLAYS)) {
+    states[name] = overlayWindows.has(name);
+  }
+  return states;
 });
 
 ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
