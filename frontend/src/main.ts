@@ -8,11 +8,32 @@ if (started) {
 }
 
 /**
- * Menu window.
+ * Menu window functionaltiy.
+ * 
+ * opened when the app starts, and allows users to launch the audio visualiser
+ * interfaces.
  */
 
+let menuWindow: BrowserWindow | null = null;
+
+// global state flags
+
+// when isMenuOpen is true, the menu is open and it becomes the window on the
+// very top. any overlay windows which are open are no longer interactable, and
+// users cannot click on them.
+let isMenuOpen = false;
+
+// differentiates between if the menu window is actually closing or if it should
+// just be hidden. when isQuitting is true, then the window should actually
+// close. this allows the app to be closed instead of being in a limbo state.
+let isQuitting = false;
+
+/**
+ * creates the menu window. will be created when the app starts, as well as when
+ * called to in the overlay windows.
+ * @returns 
+ */
 const createMenuWindow = () => {
-  // Create the browser window for the menu.
   const mainWindow = new BrowserWindow({
     title: 'Menu Page',
     width: 800,
@@ -24,7 +45,6 @@ const createMenuWindow = () => {
   });
   mainWindow.setMenu(null);
 
-  // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
@@ -33,11 +53,96 @@ const createMenuWindow = () => {
     );
   }
 
-  mainWindow.setIgnoreMouseEvents(true);
+  menuWindow = mainWindow;
 
-  // Open the DevTools.
+  // for when the menu window is actually closed and not on hide
+  mainWindow.on('closed', () => {
+    menuWindow = null;
+  });
+
+  // puts the menu window on hide
+  mainWindow.on('close', (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    closeMenuWindow();
+  });
+
   mainWindow.webContents.openDevTools();
+
+  return mainWindow;
 };
+
+/**
+ * when the menu is open, overlays should no longer be on top and should not
+ * be accessible.
+ * @returns 
+ */
+function focusMenuWindow() {
+  isMenuOpen = true;
+
+  overlayWindows.forEach((win) => {
+    if (win.isDestroyed()) return;
+    win.setIgnoreMouseEvents(true, { forward: false });
+    win.setAlwaysOnTop(false);
+    win.setFocusable(false);
+    win.webContents.send('menu-open-changed', true);
+  });
+
+  // create menu window if it doesn't exist.
+  if (!menuWindow || menuWindow.isDestroyed()) {
+    createMenuWindow();
+    // wait for window to be ready.
+    menuWindow!.once('ready-to-show', () => {
+      menuWindow!.setAlwaysOnTop(true);
+      menuWindow!.show();
+      menuWindow!.moveTop();
+      menuWindow!.focus();
+    });
+    return;
+  }
+
+  // if menu window already exists, show.
+  menuWindow.setAlwaysOnTop(true);
+  menuWindow.show();
+  menuWindow.moveTop();
+  menuWindow.focus();
+}
+
+/**
+ * quits app whena ll windows are closed.
+ */
+function quitIfNoVisibleWindows() {
+  const anyVisible = BrowserWindow.getAllWindows().some(
+    (w) => !w.isDestroyed() && w.isVisible()
+  );
+  if (!anyVisible) {
+    app.quit();
+  }
+}
+
+/**
+ * when the menu window is closed, overlay windows should be at the top again.
+ */
+function closeMenuWindow() {
+  isMenuOpen = false;
+
+  if (menuWindow && !menuWindow.isDestroyed()) {
+    menuWindow.setAlwaysOnTop(false);
+    menuWindow.hide();
+  }
+
+  // put overlay windows back on top again
+  overlayWindows.forEach((win) => {
+    if (win.isDestroyed()) return;
+    win.setAlwaysOnTop(true);
+    win.setIgnoreMouseEvents(true, { forward: true });
+    win.setFocusable(true);
+    win.webContents.send('menu-open-changed', false);
+    win.moveTop();
+  });
+
+  quitIfNoVisibleWindows();
+}
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -45,7 +150,16 @@ const createMenuWindow = () => {
 app.on('ready', createMenuWindow);
 
 /**
- * Overlay windows.
+ * closes the app for good, not hiding it.
+ */
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
+/**
+ * Overlay window functionality.
+ * 
+ * opened from the menu window. used to display the audio visualisers.
  */
 
 // Overlay windows keyed by name, so re-clicking a menu button focuses the
@@ -83,6 +197,11 @@ const OVERLAYS: Record<string, {
   },
 };
 
+/**
+ * opens overlay window and hides the menu window.
+ * @param name
+ * @returns 
+ */
 function openOverlayWindow(name: string) {
   const existing = overlayWindows.get(name);
   if (existing) {
@@ -92,6 +211,12 @@ function openOverlayWindow(name: string) {
 
   const overlay = OVERLAYS[name];
   if (!overlay) return;
+
+  // hide menu to save its state.
+  isMenuOpen = false;
+  menuWindow?.hide();
+  menuWindow?.setAlwaysOnTop(false);
+  quitIfNoVisibleWindows();
 
   const win = new BrowserWindow({
     frame: false,
@@ -103,6 +228,9 @@ function openOverlayWindow(name: string) {
     },
   });
   win.setMenu(null);
+
+  // click through the window
+  win.setIgnoreMouseEvents(true, { forward: true });
 
   const rendererBase = MAIN_WINDOW_VITE_DEV_SERVER_URL
     ? `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/${overlay.folder}/${overlay.file}`
@@ -121,18 +249,57 @@ function openOverlayWindow(name: string) {
   overlayWindows.set(name, win);
 }
 
+/**
+ * closes overlay windows
+ * @param name 
+ */
+function closeOverlayWindow(name: string) {
+  const win = overlayWindows.get(name);
+  if (win) {
+    win.close();
+  }
+  quitIfNoVisibleWindows();
+}
+
+/**
+ * IPC handlers
+ */
+
 ipcMain.on('open-overlay', (_event, name: string) => {
   openOverlayWindow(name);
 });
 
+ipcMain.on('close-overlay', (_event, name: string) => {
+  closeOverlayWindow(name);
+});
+
+ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
+  // users cannot interact with the overlays whilst the menu is open.
+  if (isMenuOpen) return;
+
+  const targetWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!targetWindow) return;
+
+  if (ignore) {
+    targetWindow.setIgnoreMouseEvents(true, { forward: true });
+  } else {
+    targetWindow.setIgnoreMouseEvents(false);
+  }
+});
+
+ipcMain.on('focus-menu', () => {
+  focusMenuWindow();
+});
+
+ipcMain.on('close-menu', () => {
+  closeMenuWindow();
+});
 
 // Quit when all windows are closed, except on macOS. There, it's common
 // for applications and their menu bar to stay active until the user quits
 // explicitly with Cmd + Q.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit();
 });
 
 app.on('activate', () => {

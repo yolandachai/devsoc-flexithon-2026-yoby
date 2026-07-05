@@ -9,14 +9,6 @@
 
 import { useEffect } from 'react';
 
-declare global {
-  interface Window {
-    overlayApi: {
-      openOverlay: (name: string) => void;
-    };
-  }
-}
-
 /**
  * Button to create a window for the first audio visualiser type.
  * The bloom overlay (for 2D games) design. This design has a bloom effect on
@@ -80,6 +72,10 @@ function App() {
       <button id="openBloomBtn">Bloom</button>
       <button id="openRingBtn">Ring</button>
       <button id="openCompassBtn">Compass</button>
+
+      <button onClick={() => window.overlayApi.closeMenu()}>
+        Close Menu
+      </button>
     </div>
   );
 }
