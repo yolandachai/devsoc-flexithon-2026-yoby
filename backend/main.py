@@ -2,10 +2,10 @@
 main.py
 
 Single entry point wiring the currently-implemented pipeline stages
-together
+together:
 
 self_noise_filter.py is implemented but parked out of this pipeline for
-now as it isn't working reliably enough to be useful in practice.
+now
 
 Windows only.
 """
@@ -99,7 +99,10 @@ def main() -> None:
                     else direction.label
                 )
                 if last_classification is not None and last_classification.available:
-                    sound_str = f"{last_classification.label} ({last_classification.confidence:.2f})"
+                   # Display all detected classes with their confidence scores, not just the top one.
+                    sound_str = ", ".join(
+                        f"{d.label} ({d.confidence:.2f})" for d in last_classification.detections
+                    )
                 else:
                     sound_str = "..."
 
