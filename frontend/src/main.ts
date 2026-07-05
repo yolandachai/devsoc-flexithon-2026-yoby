@@ -175,25 +175,16 @@ const OVERLAYS: Record<string, {
   bloom: {
     folder: 'bloom',
     file: 'bloom-overlay.html',
-    options: {
-      fullscreen: true
-    }
   },
 
-  ring: { 
-    folder: 'ring', 
+  ring: {
+    folder: 'ring',
     file: 'ring-overlay.html' ,
-    options: {
-      fullscreen: true
-    }
   },
 
-  compass: { 
-    folder: 'compass', 
+  compass: {
+    folder: 'compass',
     file: 'compass-overlay.html',
-    options: {
-      fullscreen: true
-    }
   },
 };
 
@@ -221,7 +212,7 @@ function openOverlayWindow(name: string) {
   const RING_WINDOW_SIZE = 360;
   const RING_WINDOW_MARGIN = 24;
 
-  let windowBounds: Electron.Rectangle | undefined;
+  let windowBounds: Electron.Rectangle;
   if (name === 'ring') {
     const { workArea } = screen.getPrimaryDisplay();
     windowBounds = {
@@ -230,6 +221,9 @@ function openOverlayWindow(name: string) {
       x: workArea.x + RING_WINDOW_MARGIN,
       y: workArea.y + workArea.height - RING_WINDOW_SIZE - RING_WINDOW_MARGIN,
     };
+  } else {
+    // cover the whole screen manually rather than using native fullscreen
+    windowBounds = screen.getPrimaryDisplay().bounds;
   }
 
   const win = new BrowserWindow({
