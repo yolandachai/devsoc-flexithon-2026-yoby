@@ -106,9 +106,14 @@ class SubtitleServer:
     async def _handle_client(self, websocket) -> None:
         self._clients.add(websocket)
         try:
-           # Keep the connection open until the client disconnects. 
+           # Keep the connection open until the client disconnects. Abrupt
+           # disconnects (e.g. closing the browser tab) surface as
+           # ConnectionClosedError rather than a clean close frame -- that's
+           # expected, not an error worth logging.
             async for _ in websocket:
                 pass
+        except websockets.exceptions.ConnectionClosed:
+            pass
         finally:
             self._clients.discard(websocket)
 

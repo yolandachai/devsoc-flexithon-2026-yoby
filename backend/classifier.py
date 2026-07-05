@@ -29,7 +29,7 @@ SCORE_SMOOTHING_ALPHA = 0.4
 SWITCH_MARGIN = 0.05
 
 DEFAULT_WINDOW_SECONDS = 1.0
-DEFAULT_HOP_SECONDS = 0.5  # how often a new window becomes available
+DEFAULT_HOP_SECONDS = 0.1  # how often a new window becomes available
 
 
 @dataclass
