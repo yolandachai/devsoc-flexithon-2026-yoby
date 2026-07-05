@@ -15,6 +15,8 @@ import sys
 import numpy as np
 import pyaudiowpatch as pyaudio
 
+from direction import estimate_direction
+
 CHUNK_SIZE = 1024  # frames read per loop iteration
 
 # Typical channel order for an 8-channel (7.1) WASAPI device. Driver
@@ -126,7 +128,15 @@ def main() -> None:
                     f"{label}:{level_bar(db)}"
                     for label, db in zip(labels, levels_db)
                 )
-                print(f"\r{bars}", end="", flush=True)
+
+                direction = estimate_direction(list(levels), labels)
+                direction_str = (
+                    f"{direction.label} (confidence {direction.confidence:.2f})"
+                    if direction.available
+                    else direction.label
+                )
+
+                print(f"\r{bars}   |  Direction: {direction_str}\033[K", end="", flush=True)
 
         except KeyboardInterrupt:
             print("\nStopping audio capture...")
