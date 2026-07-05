@@ -1,0 +1,104 @@
+@import '../fonts.css';
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.bloom-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.bloom-shape {
+  position: absolute;
+  top: 50%;
+  height: 160vh;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(ellipse, rgba(120, 220, 255, 0.35) 0%, rgba(120, 220, 255, 0.16) 60%, rgba(120, 220, 255, 0) 100%);
+  transition: opacity 0.2s ease;
+}
+
+.bloom-shape-left {
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.bloom-shape-right {
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.bloom-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 24, 30, 0.55);
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.bloom-label-left {
+  left: 16px;
+}
+
+.bloom-label-right {
+  right: 16px;
+}
+
+.bloom-label-visible {
+  opacity: 1;
+}
+
+.bloom-controls {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.bloom-btn {
+  pointer-events: auto;
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 24, 30, 0.55);
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.bloom-btn:hover:not(:disabled) {
+  background: rgba(40, 46, 56, 0.75);
+}
+
+.bloom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.bloom-btn-close:hover:not(:disabled) {
+  background: rgba(90, 30, 30, 0.75);
+}

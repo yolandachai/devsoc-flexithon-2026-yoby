@@ -238,6 +238,7 @@ function openOverlayWindow(name: string) {
     transparent: true,
     resizable: false,
     alwaysOnTop: true,
+    ...overlay.options,
     ...windowBounds,
     hasShadow: false,
     thickFrame: false,
@@ -246,6 +247,12 @@ function openOverlayWindow(name: string) {
     },
   });
   win.setMenu(null);
+
+  // 'screen-saver' is the highest always-on-top level electron exposes,
+  // needed so the overlay stays above other apps running in exclusive
+  // fullscreen (e.g. games), which plain alwaysOnTop does not cover.
+  win.setAlwaysOnTop(true, 'screen-saver');
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   // click through the window
   win.setIgnoreMouseEvents(true, { forward: true });
