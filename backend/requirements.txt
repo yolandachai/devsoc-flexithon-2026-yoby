@@ -5,3 +5,4 @@ setuptools<82
 scipy
 tensorflow
 tensorflow_hub
+websockets
