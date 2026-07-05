@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
@@ -6,6 +6,55 @@ import started from 'electron-squirrel-startup';
 if (started) {
   app.quit();
 }
+
+// Overlay windows keyed by name, so re-clicking a menu button focuses the
+// existing window instead of opening a duplicate.
+const overlayWindows = new Map<string, BrowserWindow>();
+
+// Maps overlay name -> the folder/file its renderer HTML lives in.
+const OVERLAYS: Record<string, { folder: string; file: string }> = {
+  bloom: { folder: 'bloom', file: 'bloom-overlay.html' },
+  ring: { folder: 'ring', file: 'ring-overlay.html' },
+  compass: { folder: 'compass', file: 'compass-overlay.html' },
+};
+
+function openOverlayWindow(name: string) {
+  const existing = overlayWindows.get(name);
+  if (existing) {
+    existing.focus();
+    return;
+  }
+
+  const overlay = OVERLAYS[name];
+  if (!overlay) return;
+
+  const win = new BrowserWindow({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+  win.setMenu(null);
+
+  const rendererBase = MAIN_WINDOW_VITE_DEV_SERVER_URL
+    ? `${MAIN_WINDOW_VITE_DEV_SERVER_URL}/src/${overlay.folder}/${overlay.file}`
+    : undefined;
+
+  if (rendererBase) {
+    win.loadURL(rendererBase);
+  } else {
+    win.loadFile(
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/src/${overlay.folder}/${overlay.file}`),
+    );
+  }
+
+  win.webContents.openDevTools();
+  win.on('closed', () => overlayWindows.delete(name));
+  overlayWindows.set(name, win);
+}
+
+ipcMain.on('open-overlay', (_event, name: string) => {
+  openOverlayWindow(name);
+});
 
 const createMenuWindow = () => {
   // Create the browser window for the menu.
@@ -21,6 +70,7 @@ const createMenuWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
+  mainWindow.setMenu(null);
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
