@@ -38,6 +38,27 @@ body {
   fill: #23C9FF;
 }
 
+.ring-label {
+  position: absolute;
+  top: calc(50% + min(35vh, 35vw) + 24px);
+  left: 50%;
+  transform: translate(-50%, 0);
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 24, 30, 0.55);
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.ring-label-visible {
+  opacity: 1;
+}
+
 .ring-controls {
   position: absolute;
   bottom: 20px;

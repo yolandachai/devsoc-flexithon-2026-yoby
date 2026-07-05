@@ -39,6 +39,7 @@ function RingOverlay() {
       labelRef.current.textContent = target.dataAvailable
         ? `${latestEvent.label || 'Sound'} — ${latestEvent.direction.label}`
         : '';
+      labelRef.current.classList.toggle('ring-label-visible', target.dataAvailable);
     }
   }, [latestEvent]);
 
@@ -66,7 +67,11 @@ function RingOverlay() {
  
       const d = ringElement(drawn.intensity, drawn.degree);
       if (pathRef.current) pathRef.current.setAttribute('d', d);
- 
+
+      if (labelRef.current && (stale || !target.dataAvailable)) {
+        labelRef.current.classList.remove('ring-label-visible');
+      }
+
       frame = requestAnimationFrame(tick);
     };
  
@@ -86,7 +91,9 @@ function RingOverlay() {
       <svg className="ring-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
         <path ref={pathRef} className="ring-main" />
       </svg>
- 
+
+      <div ref={labelRef} className="ring-label" />
+
       <div className="ring-controls">
         <button
           className="ring-btn"
