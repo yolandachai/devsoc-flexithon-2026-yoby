@@ -73,7 +73,8 @@ function App() {
       <button id="openRingBtn">Ring</button>
       <button id="openCompassBtn">Compass</button>
 
-      <button onClick={() => window.overlayApi.closeMenu()}>
+      <button className="close-menu-btn"
+        onClick={() => window.overlayApi.closeMenu()}>
         Close Menu
       </button>
     </div>

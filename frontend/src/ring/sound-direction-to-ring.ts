@@ -30,7 +30,7 @@ export interface DataForRing {
   dataAvailable: boolean;
 }
 
-export function toRingTarget(
+export function dataForRing(
   direction: DirectionEstimate,
   confidence: number): DataForRing {
   

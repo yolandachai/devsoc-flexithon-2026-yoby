@@ -1,0 +1,74 @@
+@import '../fonts.css';
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+}
+
+.main-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  pointer-events: none;
+}
+
+.ring-svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(70vh, 70vw);
+  height: min(70vh, 70vw);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.ring-main {
+  fill-rule: evenodd;
+}
+
+.ring-main {
+  fill: rgba(120, 220, 255, 0.85);
+}
+
+.ring-controls {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.ring-btn {
+  pointer-events: auto;
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 24, 30, 0.55);
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.ring-btn:hover:not(:disabled) {
+  background: rgba(40, 46, 56, 0.75);
+}
+
+.ring-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ring-btn-close:hover:not(:disabled) {
+  background: rgba(90, 30, 30, 0.75);
+}

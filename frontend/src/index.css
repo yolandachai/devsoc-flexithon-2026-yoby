@@ -35,6 +35,8 @@ button {
   100% { font-family: 'Redaction', sans-serif; }
 }
 
+/* bloom button */
+
 button#openBloomBtn {
   font-family: 'Redaction 50', sans-serif;
   font-size: 50px;
@@ -43,6 +45,8 @@ button#openBloomBtn:hover {
   transform: translateY(-2px) scale(1.2);
   animation: font-animation 2s steps(4) infinite;
 }
+
+/* ring button */
 
 button#openRingBtn {
   font-family: 'Redaction 35', sans-serif;
@@ -53,11 +57,28 @@ button#openRingBtn:hover {
   animation: font-animation 2s steps(4) infinite;
 }
 
+/* compass button */
+
 button#openCompassBtn {
   font-family: 'Redaction 70', sans-serif;
   font-size: 50px;
 }
 button#openCompassBtn:hover {
   transform: translateY(-2px) scale(1.2);
+  animation: font-animation 2s steps(4) infinite;
+}
+
+/* close menu button */
+
+.close-menu-btn {
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 20px;
+  margin-left: 3%;
+  position: absolute;
+  bottom: 6%;
+}
+
+.close-menu-btn:hover {
+  transform: translateY(-1px) scale(1.05);
   animation: font-animation 2s steps(4) infinite;
 }
