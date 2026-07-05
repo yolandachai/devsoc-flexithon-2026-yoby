@@ -38,6 +38,17 @@ from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifie
 from direction import DirectionEstimate, estimate_direction
 from server import SubtitleServer, build_event
 
+# A persistent sound is only treated as ambience if it's ALSO spatially
+# diffuse (direction confidence below this). A radio/speaker playing music
+# is persistent but still comes from one fixed direction (high confidence),
+# so it's correctly left alone; rain, wind, and crowd murmur are both
+# persistent and diffuse (no single source location), so they get suppressed.
+AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD = 0.4
+
+
+def _is_diffuse(direction) -> bool:
+    return (not direction.available) or direction.confidence < AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD
+
 
 def process_block(
     levels: List[float],
@@ -46,9 +57,7 @@ def process_block(
     audio_buffer: RollingAudioBuffer,
 ) -> Tuple[DirectionEstimate, Optional[np.ndarray]]:
     # Process a single block of audio: estimate direction (cheap, runs every block)
-    # and hand off a window for classification when one becomes available. The
-    # window itself is NOT classified here -- that happens on a background
-    # thread so slow YAMNet inference never blocks audio capture.
+    # and hand off a window for classification when one becomes available.
     direction = estimate_direction(levels, labels)
     window = audio_buffer.add_block(raw_block)
     return direction, window
@@ -56,9 +65,7 @@ def process_block(
 
 class ClassificationWorker:
     # Runs YAMNet classification + per-band direction estimation on a background
-    # thread, decoupled from the audio capture loop. Only the most recent window
-    # is kept -- if classification falls behind, older windows are dropped rather
-    # than queued up, so results stay as close to real-time as possible.
+    # thread, decoupled from the audio capture loop.
     def __init__(
         self,
         classifier: YamNetClassifier,
@@ -109,6 +116,12 @@ class ClassificationWorker:
             if classification.available:
                 for d in classification.detections:
                     sound_dir = band_directions.for_label(d.label)
+                    # Sounds that have been continuously present for a while AND
+                    # have no clear source direction (rain, wind, crowd noise, ...)
+                    # are ambience, not a discrete event worth surfacing -- skip
+                    # publishing them so they don't clog the overlay.
+                    if d.is_ambient and _is_diffuse(sound_dir):
+                        continue
                     self._server.publish(build_event(d.label, d.confidence, sound_dir))
 
 
@@ -178,8 +191,12 @@ def main() -> None:
                             sound_dir = last_band_directions.for_label(d.label)
                             dir_str = sound_dir.label if sound_dir.available else "?"
                         else:
+                            sound_dir = None
                             dir_str = "?"
-                        parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}")
+                        ambient_str = (
+                            " [ambient]" if d.is_ambient and sound_dir is not None and _is_diffuse(sound_dir) else ""
+                        )
+                        parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}{ambient_str}")
                     sound_str = " | ".join(parts)
                 else:
                     sound_str = "..."
