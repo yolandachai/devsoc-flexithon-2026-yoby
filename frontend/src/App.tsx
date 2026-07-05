@@ -2,20 +2,15 @@
  * This is the menu page window where users can configure their settings and
  * choose which type of audio visualiser they would like, as well as adjust
  * the display and appearance of it.
- *
+ * 
  * From this window, users can open new windows which will be the audio
  * visualisers themselves.
  */
 
-import { useEffect } from 'react';
-
-declare global {
-  interface Window {
-    overlayApi: {
-      openOverlay: (name: string) => void;
-    };
-  }
-}
+import type { BrowserWindow as BrowserWindowType } from 'electron';
+import { BrowserWindow } from '@electron/remote';
+import * as path from 'path';
+import * as url from 'url';
 
 /**
  * Button to create a window for the first audio visualiser type.
@@ -23,13 +18,23 @@ declare global {
  * the left and right sides of the screen corresponding to the direction and
  * intensity of sound.
  */
-function wireBloomBtn() {
-  const openBloomBtn = document.getElementById('openBloomBtn');
-  if (openBloomBtn) {
-    openBloomBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('bloom');
-    });
-  }
+let bloomWin: BrowserWindowType | null = null;
+const openBloomBtn = document.getElementById('openBloomBtn');
+if (openBloomBtn) {
+  openBloomBtn.addEventListener('click', function (event) {
+    if (bloomWin) {
+      bloomWin.focus();
+      return;
+    }
+    bloomWin = new BrowserWindow();
+
+    bloomWin.loadURL(url.format({
+      pathname: path.join(__dirname, 'bloom', 'bloom-overlay.html'),
+      protocol: 'file',
+      slashes: true
+    }));
+    bloomWin.webContents.openDevTools();
+  });
 }
 
 /**
@@ -38,45 +43,29 @@ function wireBloomBtn() {
  * its sides increase in width corresponding to the direction and intensity of
  * sound.
  */
-function wireRingBtn() {
-  const openRingBtn = document.getElementById('openRingBtn');
-  if (openRingBtn) {
-    openRingBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('ring');
-    });
-  }
-}
+let ringWin: BrowserWindowType | null = null;
+const openRingBtn = document.getElementById('openRingBtn');
+if (openRingBtn) {
+  openRingBtn.addEventListener('click', function (event) {
+    if (ringWin) {
+      ringWin.focus();
+      return;
+    }
+    ringWin = new BrowserWindow();
 
-/**
- * Button to create a window for the third audio visualiser type.
- * The compass overlay design. This design shows a horizontal
- * strip with a pin per detected sound at its estimated direction, labelled
- * with what the sound is.
- */
-function wireCompassBtn() {
-  const openCompassBtn = document.getElementById('openCompassBtn');
-  if (openCompassBtn) {
-    openCompassBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('compass');
-    });
-  }
+    ringWin.loadURL(url.format({
+      pathname: path.join(__dirname, 'ring', 'ring-overlay.html'),
+      protocol: 'file',
+      slashes: true
+    }));
+    ringWin.webContents.openDevTools();
+  });
 }
 
 function App() {
-  // Wired up after mount (rather than at module load) so the buttons above
-  // exist in the DOM when getElementById runs.
-  useEffect(() => {
-    wireBloomBtn();
-    wireRingBtn();
-    wireCompassBtn();
-  }, []);
-
   return (
     <div>
       <h1>Header</h1>
-      <button id="openBloomBtn">Bloom Overlay</button>
-      <button id="openRingBtn">Ring Overlay</button>
-      <button id="openCompassBtn">Compass Overlay</button>
     </div>
   );
 }
