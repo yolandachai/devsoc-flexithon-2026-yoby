@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
@@ -67,7 +67,7 @@ const createMenuWindow = () => {
     closeMenuWindow();
   });
 
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
 
   return mainWindow;
 };
@@ -218,11 +218,29 @@ function openOverlayWindow(name: string) {
   menuWindow?.setAlwaysOnTop(false);
   quitIfNoVisibleWindows();
 
+  // pin ring overlay to the bottom left of hte screen
+  const RING_WINDOW_SIZE = 360;
+  const RING_WINDOW_MARGIN = 24;
+
+  let windowBounds: Electron.Rectangle | undefined;
+  if (name === 'ring') {
+    const { workArea } = screen.getPrimaryDisplay();
+    windowBounds = {
+      width: RING_WINDOW_SIZE,
+      height: RING_WINDOW_SIZE,
+      x: workArea.x + RING_WINDOW_MARGIN,
+      y: workArea.y + workArea.height - RING_WINDOW_SIZE - RING_WINDOW_MARGIN,
+    };
+  }
+
   const win = new BrowserWindow({
     frame: false,
-    transparent: false,
+    transparent: true,
     resizable: false,
     alwaysOnTop: true,
+    ...windowBounds,
+    hasShadow: false,
+    thickFrame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -244,7 +262,8 @@ function openOverlayWindow(name: string) {
     );
   }
 
-  win.webContents.openDevTools();
+  // win.webContents.openDevTools();
+
   win.on('closed', () => overlayWindows.delete(name));
   overlayWindows.set(name, win);
 }

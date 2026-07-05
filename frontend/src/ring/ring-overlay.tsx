@@ -1,39 +1,152 @@
 import { createRoot } from 'react-dom/client';
 import './ring-overlay.css'
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useLatestEvent } from '../server/api';
+import { dataForRing } from './sound-direction-to-ring';
+
+const SMOOTHING = 0.25;
+const IDLE_TIMER = 1500; // in ms
+const CENTER = 200;
+const BASE_RADIUS = 85;
+const MIN_THICKNESS = 8;
+const MAX_THICKNESS = 40;
+const SEGMENTS = 180;
 
 function RingOverlay() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpenRef = useRef(false);
+ 
+  const latestEvent = useLatestEvent();
+
+  const drawnRef = useRef({ degree: 0, intensity: 0 });
+  const lastEventAtRef = useRef<number>(0);
+ 
+  const pathRef = useRef<SVGPathElement>(null);
+  const labelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     window.overlayApi.onMenuOpenChanged(setMenuOpen);
   }, []);
 
-  return (
-    <div>
-      {/* open menu */}
-      <button
-        disabled={menuOpen}
-        style={menuOpen ? { pointerEvents: 'none' } : undefined}
-        onMouseEnter={() => window.overlayApi.setIgnoreMouseEvents(false)}
-        onMouseLeave={() => window.overlayApi.setIgnoreMouseEvents(true)}
-        onClick={() => window.overlayApi.focusMenu()}
-      >
-        Menu
-      </button>
+  const targetRef = useRef({ degree: 0, intensity: 0, dataAvailable: false });
+  useEffect(() => {
+    if (!latestEvent) return;
+    const target = dataForRing(latestEvent.direction, latestEvent.confidence);
+    targetRef.current = target;
+    lastEventAtRef.current = performance.now();
+ 
+    if (labelRef.current) {
+      labelRef.current.textContent = target.dataAvailable
+        ? `${latestEvent.label || 'Sound'} — ${latestEvent.direction.label}`
+        : '';
+    }
+  }, [latestEvent]);
 
-      {/* close this overlay */}
-      <button
-        disabled={menuOpen}
-        style={menuOpen ? { pointerEvents: 'none' } : undefined}
-        onMouseEnter={() => window.overlayApi.setIgnoreMouseEvents(false)}
-        onMouseLeave={() => window.overlayApi.setIgnoreMouseEvents(true)}
-        onClick={() => window.overlayApi.closeOverlay('ring')}
-      >
-        Close
-      </button>
+  // animate repsonsive ring
+  useEffect(() => {
+    let frame: number;
+ 
+    const tick = () => {
+      const drawn = drawnRef.current;
+      const target = targetRef.current;
+ 
+      // if no response from backend/no data, go back to the default state of
+      // the ring.
+      const stale = performance.now() - lastEventAtRef.current > IDLE_TIMER;
+      const targetIntensity = stale || !target.dataAvailable ? 0 : target.intensity;
+ 
+      drawn.intensity += (targetIntensity - drawn.intensity) * SMOOTHING;
+ 
+      if (target.dataAvailable && !stale) {
+        let delta = target.degree - drawn.degree;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        drawn.degree = (drawn.degree + delta * SMOOTHING + 360) % 360;
+      }
+ 
+      const d = ringElement(drawn.intensity, drawn.degree);
+      if (pathRef.current) pathRef.current.setAttribute('d', d);
+ 
+      frame = requestAnimationFrame(tick);
+    };
+ 
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+ 
+  const handleMouseEnter = () => {
+    if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(false);
+  };
+  const handleMouseLeave = () => {
+    if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(true);
+  };
+
+  return (
+    <div className="main-container">
+      <svg className="ring-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+        <path ref={pathRef} className="ring-main" />
+      </svg>
+ 
+      <div className="ring-controls">
+        <button
+          className="ring-btn"
+          disabled={menuOpen}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onClick={() => { if (!menuOpenRef.current) window.overlayApi.focusMenu(); }}
+        >
+          Menu
+        </button>
+        <button
+          className="ring-btn ring-btn-close"
+          disabled={menuOpen}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onClick={() => { if (!menuOpenRef.current) window.overlayApi.closeOverlay('ring'); }}
+        >
+          Close
+        </button>
+      </div>
     </div>
   );
+}
+
+/**
+ * Creating the ring element itself.
+ */
+function ringElement(intensity: number, degree: number): string {
+  const outerPoints: string[] = [];
+  const innerPoints: string[] = [];
+ 
+  // calculate/convert the sound direction for each degree
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const segDeg = (360 / SEGMENTS) * i;
+    const segRad = ((segDeg - 90) * Math.PI) / 180;
+ 
+    let diff = Math.abs(segDeg - degree);
+    if (diff > 180) diff = 360 - diff;
+ 
+    // makes it smooth.
+    const falloff = Math.max(0, Math.cos((diff / 180) * Math.PI));
+    const boost = falloff * intensity;
+ 
+    // how far out the circle can grow.
+    const thickness = MIN_THICKNESS + (MAX_THICKNESS - MIN_THICKNESS) * boost;
+    const outerRadius = BASE_RADIUS + thickness;
+ 
+    const ox = CENTER + outerRadius * Math.cos(segRad);
+    const oy = CENTER + outerRadius * Math.sin(segRad);
+    const ix = CENTER + BASE_RADIUS * Math.cos(segRad);
+    const iy = CENTER + BASE_RADIUS * Math.sin(segRad);
+ 
+    outerPoints.push(`${ox.toFixed(2)},${oy.toFixed(2)}`);
+    innerPoints.push(`${ix.toFixed(2)},${iy.toFixed(2)}`);
+  }
+ 
+  const outerPath = `M${outerPoints.join('L')}Z`;
+  const innerPath = `M${innerPoints.reverse().join('L')}Z`;
+ 
+  return `${outerPath} ${innerPath}`;
 }
 
 const root = createRoot(document.getElementById('root')!);
