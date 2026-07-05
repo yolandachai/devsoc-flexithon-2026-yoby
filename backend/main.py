@@ -1,11 +1,10 @@
 """
 main.py
 
-Single entry point wiring the currently-implemented pipeline stages
-together
+Single entry point wiring the currently-implemented pipeline stages together
 
 self_noise_filter.py is implemented but parked out of this pipeline for
-now as it isn't working reliably enough to be useful in practice.
+now
 
 Windows only.
 """
@@ -25,6 +24,7 @@ from audio_capture import (
     rms_per_channel,
     rms_to_dbfs,
 )
+from band_direction import BandDirectionEstimator, BandDirections
 from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifier
 from direction import DirectionEstimate, estimate_direction
 
@@ -35,21 +35,28 @@ def process_block(
     raw_block: np.ndarray,
     audio_buffer: RollingAudioBuffer,
     classifier: YamNetClassifier,
-) -> Tuple[DirectionEstimate, Optional[ClassificationResult]]:
+    band_estimator: BandDirectionEstimator,
+) -> Tuple[DirectionEstimate, Optional[ClassificationResult], Optional[BandDirections]]:
+    # Estimate direction from the current RMS levels, classify the current audio window if 
+    # enough audio has accumulated, and estimate band directions if a window is available.
     direction = estimate_direction(levels, labels)
 
     classification = None
+    band_directions = None
     window = audio_buffer.add_block(raw_block)
     if window is not None:
         classification = classifier.classify_native_rate(window, audio_buffer.sample_rate)
+        band_directions = band_estimator.estimate(window, labels, audio_buffer.sample_rate)
 
-    return direction, classification
+    return direction, classification, band_directions
 
 
 def main() -> None:
     p = pyaudio.PyAudio()
     classifier = YamNetClassifier()
+    band_estimator = BandDirectionEstimator()
     last_classification: Optional[ClassificationResult] = None
+    last_band_directions: Optional[BandDirections] = None
 
     try:
         devices = list_loopback_devices(p)
@@ -60,7 +67,7 @@ def main() -> None:
         channels = int(device["maxInputChannels"])
         sample_rate = int(device["defaultSampleRate"])
         labels = channel_labels_for(channels)
-        audio_buffer = RollingAudioBuffer(sample_rate=sample_rate)
+        audio_buffer = RollingAudioBuffer(sample_rate=sample_rate, channels=channels)
 
         print(f"\nCapturing from: {device['name']}")
         print(f"Channels: {channels}  |  Sample rate: {sample_rate} Hz")
@@ -83,11 +90,13 @@ def main() -> None:
                 levels = list(rms_per_channel(audio))
                 levels_db = [rms_to_dbfs(lvl) for lvl in levels]
 
-                direction, classification = process_block(
-                    levels, labels, audio, audio_buffer, classifier
+                direction, classification, band_directions = process_block(
+                    levels, labels, audio, audio_buffer, classifier, band_estimator
                 )
                 if classification is not None:
                     last_classification = classification
+                if band_directions is not None:
+                    last_band_directions = band_directions
 
                 bars = "  ".join(
                     f"{label}:{level_bar(db)}"
@@ -98,8 +107,17 @@ def main() -> None:
                     if direction.available
                     else direction.label
                 )
+
                 if last_classification is not None and last_classification.available:
-                    sound_str = f"{last_classification.label} ({last_classification.confidence:.2f})"
+                    parts = []
+                    for d in last_classification.detections:
+                        if last_band_directions is not None:
+                            sound_dir = last_band_directions.for_label(d.label)
+                            dir_str = sound_dir.label if sound_dir.available else "?"
+                        else:
+                            dir_str = "?"
+                        parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}")
+                    sound_str = " | ".join(parts)
                 else:
                     sound_str = "..."
 
@@ -109,9 +127,7 @@ def main() -> None:
                     flush=True,
                 )
 
-                # server.py not implemented yet -- once it exists,
-                # broadcast {label, direction, confidence} here whenever a
-                # new classification comes back.
+                # server.py not implemented yet.
 
         except KeyboardInterrupt:
             print("\nStopping...")
