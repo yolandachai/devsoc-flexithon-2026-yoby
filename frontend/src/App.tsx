@@ -7,60 +7,20 @@
  * visualisers themselves.
  */
 
-import { useEffect } from 'react';
-
-/**
- * Button to create a window for the first audio visualiser type.
- * The bloom overlay (for 2D games) design. This design has a bloom effect on
- * the left and right sides of the screen corresponding to the direction and
- * intensity of sound.
- */
-function wireBloomBtn() {
-  const openBloomBtn = document.getElementById('openBloomBtn');
-  if (openBloomBtn) {
-    openBloomBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('bloom');
-    });
-  }
-}
-
-/**
- * Button to create a window for the second audio visualiser type.
- * The ring overlay (360 degree) design. This design has a hollow ring wherein
- * its sides increase in width corresponding to the direction and intensity of
- * sound.
- */
-function wireRingBtn() {
-  const openRingBtn = document.getElementById('openRingBtn');
-  if (openRingBtn) {
-    openRingBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('ring');
-    });
-  }
-}
-
-/**
- * Button to create a window for the third audio visualiser type.
- * The compass overlay design. This design shows a horizontal
- * strip with a pin per detected sound at its estimated direction, labelled
- * with what the sound is.
- */
-function wireCompassBtn() {
-  const openCompassBtn = document.getElementById('openCompassBtn');
-  if (openCompassBtn) {
-    openCompassBtn.addEventListener('click', function (event) {
-      window.overlayApi.openOverlay('compass');
-    });
-  }
-}
+import { useEffect, useState } from 'react';
 
 function App() {
-  // Wired up after mount (rather than at module load) so the buttons above
-  // exist in the DOM when getElementById runs.
+  // Tracks which overlays are currently open, so each button can show
+  // whether clicking it will open or close its overlay. Overlays can also
+  // close themselves (e.g. their own Close button), so this is synced from
+  // the main process rather than toggled optimistically.
+  const [openOverlays, setOpenOverlays] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
-    wireBloomBtn();
-    wireRingBtn();
-    wireCompassBtn();
+    window.overlayApi.getOverlayStates().then(setOpenOverlays);
+    window.overlayApi.onOverlayStateChanged((name, isOpen) => {
+      setOpenOverlays((prev) => ({ ...prev, [name]: isOpen }));
+    });
   }, []);
 
   return (
@@ -69,9 +29,27 @@ function App() {
 
       <h2>Overlays</h2>
 
-      <button id="openBloomBtn">Bloom</button>
-      <button id="openRingBtn">Ring</button>
-      <button id="openCompassBtn">Compass</button>
+      <button
+        id="openBloomBtn"
+        className={openOverlays.bloom ? 'active' : ''}
+        onClick={() => window.overlayApi.toggleOverlay('bloom')}
+      >
+        Bloom
+      </button>
+      <button
+        id="openRingBtn"
+        className={openOverlays.ring ? 'active' : ''}
+        onClick={() => window.overlayApi.toggleOverlay('ring')}
+      >
+        Ring
+      </button>
+      <button
+        id="openCompassBtn"
+        className={openOverlays.compass ? 'active' : ''}
+        onClick={() => window.overlayApi.toggleOverlay('compass')}
+      >
+        Compass
+      </button>
 
       <button className="close-menu-btn"
         onClick={() => window.overlayApi.closeMenu()}>
