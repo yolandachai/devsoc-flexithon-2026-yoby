@@ -81,24 +81,36 @@ body {
   pointer-events: none;
 }
 
+@keyframes font-animation {
+  0%   { font-family: 'Redaction', sans-serif; }
+  20%  { font-family: 'Redaction 10', sans-serif; }
+  40%  { font-family: 'Redaction 35', sans-serif; }
+  60%  { font-family: 'Redaction 70', sans-serif; }
+  80%  { font-family: 'Redaction 100', sans-serif; }
+  100% { font-family: 'Redaction', sans-serif; }
+}
+
 .bloom-btn {
   pointer-events: auto;
   font-family: 'Redaction 35', sans-serif;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(20, 24, 30, 0.55);
-  transition: background 0.15s ease, opacity 0.15s ease;
+  font-size: 20px;
+  color: white;
+  background: black;
+  transition: background 0.15s ease;
+  width: 70px;
+  height: 30px;
 }
 
 .bloom-btn:hover:not(:disabled) {
-  background: rgba(40, 46, 56, 0.75);
+  background: grey;
+  animation: font-animation 2s steps(4) infinite;
 }
 
 .bloom-btn:disabled {
-  opacity: 0.35;
   cursor: default;
 }
 
 .bloom-btn-close:hover:not(:disabled) {
-  background: rgba(90, 30, 30, 0.75);
+  background: grey;
+  animation: font-animation 2s steps(4) infinite;
 }
