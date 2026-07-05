@@ -1,5 +1,7 @@
 PyAudioWPatch
 numpy
 pynput
+setuptools<82
+scipy
 tensorflow
 tensorflow_hub
