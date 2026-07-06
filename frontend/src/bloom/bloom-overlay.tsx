@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import './bloom-overlay.css';
 import { useEffect, useRef, useState } from 'react';
-import { useLatestEvent } from '../server/api';
+import { subscribeToEvents } from '../server/api';
 import { dataForBloom } from './sound-direction-to-bloom';
 
 const SMOOTHING = 0.25;
@@ -9,14 +9,21 @@ const IDLE_TIMER = 1500; // in ms
 const MIN_RADIUS = 130; // px, resting size of the semi-circle
 const MAX_RADIUS = 420; // px, size at full intensity
 
+interface TrackedSound {
+  side: 'left' | 'right';
+  intensity: number;
+  text: string;
+  updatedAt: number;
+}
+
 function BloomOverlay() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuOpenRef = useRef(false);
 
-  const latestEvent = useLatestEvent();
-
+  // Tracks every sound heard recently, keyed by label, so the loudest one on
+  // each side can be picked even if it wasn't the very last event received.
+  const soundsRef = useRef<Record<string, TrackedSound>>({});
   const drawnRef = useRef({ left: 0, right: 0 });
-  const lastEventAtRef = useRef<number>(0);
 
   const leftShapeRef = useRef<HTMLDivElement>(null);
   const rightShapeRef = useRef<HTMLDivElement>(null);
@@ -30,50 +37,47 @@ function BloomOverlay() {
     });
   }, []);
 
-  const targetRef = useRef({ side: null as 'left' | 'right' | null, intensity: 0, dataAvailable: false });
   useEffect(() => {
-    if (!latestEvent) return;
-    const target = dataForBloom(latestEvent.direction, latestEvent.confidence);
-    targetRef.current = target;
-    lastEventAtRef.current = performance.now();
-
-    const text = target.dataAvailable ? `${latestEvent.label || 'Sound'} — ${latestEvent.direction.label}` : '';
-    if (leftLabelRef.current) {
-      leftLabelRef.current.textContent = target.side === 'left' ? text : '';
-      leftLabelRef.current.classList.toggle('bloom-label-visible', target.side === 'left');
-    }
-    if (rightLabelRef.current) {
-      rightLabelRef.current.textContent = target.side === 'right' ? text : '';
-      rightLabelRef.current.classList.toggle('bloom-label-visible', target.side === 'right');
-    }
-  }, [latestEvent]);
+    return subscribeToEvents((event) => {
+      const target = dataForBloom(event.direction, event.confidence);
+      if (!target.dataAvailable || !target.side) return;
+      soundsRef.current[event.label || 'sound'] = {
+        side: target.side,
+        intensity: target.intensity,
+        text: `${event.label || 'Sound'} — ${event.direction.label}`,
+        updatedAt: performance.now(),
+      };
+    });
+  }, []);
 
   // animate responsive bloom shapes
   useEffect(() => {
     let frame: number;
 
     const tick = () => {
+      const now = performance.now();
+      const sounds = soundsRef.current;
+      for (const label of Object.keys(sounds)) {
+        if (now - sounds[label].updatedAt > IDLE_TIMER) delete sounds[label];
+      }
+
+      const loudest = (side: 'left' | 'right') =>
+        Object.values(sounds)
+          .filter((s) => s.side === side)
+          .sort((a, b) => b.intensity - a.intensity)[0];
+
+      const leftSound = loudest('left');
+      const rightSound = loudest('right');
+
       const drawn = drawnRef.current;
-      const target = targetRef.current;
-
-      const stale = performance.now() - lastEventAtRef.current > IDLE_TIMER;
-      const active = target.dataAvailable && !stale;
-
-      const targetLeft = active && target.side === 'left' ? target.intensity : 0;
-      const targetRight = active && target.side === 'right' ? target.intensity : 0;
-
-      drawn.left += (targetLeft - drawn.left) * SMOOTHING;
-      drawn.right += (targetRight - drawn.right) * SMOOTHING;
+      drawn.left += ((leftSound?.intensity ?? 0) - drawn.left) * SMOOTHING;
+      drawn.right += ((rightSound?.intensity ?? 0) - drawn.right) * SMOOTHING;
 
       applyBloomSize(leftShapeRef.current, drawn.left);
       applyBloomSize(rightShapeRef.current, drawn.right);
 
-      if (leftLabelRef.current && (!active || target.side !== 'left')) {
-        leftLabelRef.current.classList.remove('bloom-label-visible');
-      }
-      if (rightLabelRef.current && (!active || target.side !== 'right')) {
-        rightLabelRef.current.classList.remove('bloom-label-visible');
-      }
+      setLabel(leftLabelRef.current, leftSound?.text ?? '');
+      setLabel(rightLabelRef.current, rightSound?.text ?? '');
 
       frame = requestAnimationFrame(tick);
     };
@@ -134,6 +138,12 @@ function applyBloomSize(el: HTMLDivElement | null, intensity: number) {
   const radius = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * intensity;
   el.style.width = `${radius * 2}px`;
   el.style.opacity = `${0.5 + 0.5 * intensity}`;
+}
+
+function setLabel(el: HTMLDivElement | null, text: string) {
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('bloom-label-visible', text !== '');
 }
 
 const root = createRoot(document.getElementById('root')!);
