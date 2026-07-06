@@ -65,6 +65,23 @@ function CompassOverlay() {
   const [sounds, setSounds] = useState<Record<string, TrackedSound>>({});
   const socketRef = useRef<WebSocket | null>(null);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpenRef = useRef(false);
+
+  useEffect(() => {
+    window.overlayApi.onMenuOpenChanged((isOpen) => {
+      menuOpenRef.current = isOpen;
+      setMenuOpen(isOpen);
+    });
+  }, []);
+
+  const handleControlsMouseEnter = () => {
+    if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(false);
+  };
+  const handleControlsMouseLeave = () => {
+    if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(true);
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -160,6 +177,31 @@ function CompassOverlay() {
             </div>
           );
         })}
+      </div>
+
+      <div
+        className="compass-controls"
+        onMouseEnter={handleControlsMouseEnter}
+        onMouseLeave={handleControlsMouseLeave}
+      >
+        <button
+          className="compass-btn"
+          disabled={menuOpen}
+          onClick={() => {
+            if (menuOpenRef.current) return;
+            window.overlayApi.focusMenu();
+            window.overlayApi.closeOverlay('compass');
+          }}
+        >
+          Menu
+        </button>
+        <button
+          className="compass-btn compass-btn-close"
+          disabled={menuOpen}
+          onClick={() => { if (!menuOpenRef.current) window.overlayApi.closeOverlay('compass'); }}
+        >
+          Close
+        </button>
       </div>
     </div>
   );

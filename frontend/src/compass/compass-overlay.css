@@ -100,3 +100,44 @@ body {
   margin-bottom: 0;
   margin-top: 2px;
 }
+
+.compass-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  margin: -10px;
+  pointer-events: auto;
+}
+
+@keyframes font-animation {
+  0%   { font-family: 'Redaction', sans-serif; }
+  20%  { font-family: 'Redaction 10', sans-serif; }
+  40%  { font-family: 'Redaction 35', sans-serif; }
+  60%  { font-family: 'Redaction 70', sans-serif; }
+  80%  { font-family: 'Redaction 100', sans-serif; }
+  100% { font-family: 'Redaction', sans-serif; }
+}
+
+.compass-btn {
+  pointer-events: auto;
+  opacity: 1;
+  font-family: 'Redaction 35', sans-serif;
+  font-size: 20px;
+  color: white;
+  background: black;
+  transition: background 0.15s ease, opacity 0.2s ease;
+  width: 70px;
+  height: 30px;
+}
+
+.compass-btn:hover:not(:disabled) {
+  background: grey;
+  animation: font-animation 2s steps(4) infinite;
+}
+
+.compass-btn:disabled {
+  cursor: default;
+}

@@ -93,8 +93,8 @@ body {
 }
 
 .bloom-btn {
-  pointer-events: none;
-  opacity: 0;
+  pointer-events: auto;
+  opacity: 1;
   font-family: 'Redaction 35', sans-serif;
   font-size: 20px;
   color: white;
@@ -102,11 +102,6 @@ body {
   transition: background 0.15s ease, opacity 0.2s ease;
   width: 70px;
   height: 30px;
-}
-
-.bloom-controls-visible .bloom-btn {
-  pointer-events: auto;
-  opacity: 1;
 }
 
 .bloom-btn:hover:not(:disabled) {

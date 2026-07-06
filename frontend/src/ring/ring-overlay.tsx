@@ -16,9 +16,6 @@ function RingOverlay() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuOpenRef = useRef(false);
 
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const hoverTimerRef = useRef<number | null>(null);
-
   const latestEvent = useLatestEvent();
 
   const drawnRef = useRef({ degree: 0, intensity: 0 });
@@ -85,24 +82,11 @@ function RingOverlay() {
     return () => cancelAnimationFrame(frame);
   }, []);
  
-  useEffect(() => {
-    return () => {
-      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    };
-  }, []);
-
   const handleControlsMouseEnter = () => {
     if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(false);
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = window.setTimeout(() => setControlsVisible(true), 3000);
   };
   const handleControlsMouseLeave = () => {
     if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(true);
-    if (hoverTimerRef.current) {
-      clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    setControlsVisible(false);
   };
 
   return (
@@ -114,7 +98,7 @@ function RingOverlay() {
       <div ref={labelRef} className="ring-label" />
 
       <div
-        className={`ring-controls${controlsVisible ? ' ring-controls-visible' : ''}`}
+        className="ring-controls"
         onMouseEnter={handleControlsMouseEnter}
         onMouseLeave={handleControlsMouseLeave}
       >
