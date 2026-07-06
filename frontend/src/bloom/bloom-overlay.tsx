@@ -13,6 +13,9 @@ function BloomOverlay() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuOpenRef = useRef(false);
 
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hoverTimerRef = useRef<number | null>(null);
+
   const latestEvent = useLatestEvent();
 
   const drawnRef = useRef({ left: 0, right: 0 });
@@ -82,11 +85,24 @@ function BloomOverlay() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const handleMouseEnter = () => {
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  const handleControlsMouseEnter = () => {
     if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(false);
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = window.setTimeout(() => setControlsVisible(true), 3000);
   };
-  const handleMouseLeave = () => {
+  const handleControlsMouseLeave = () => {
     if (!menuOpenRef.current) window.overlayApi.setIgnoreMouseEvents(true);
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setControlsVisible(false);
   };
 
   return (
@@ -97,21 +113,25 @@ function BloomOverlay() {
       <div ref={leftLabelRef} className="bloom-label bloom-label-left" />
       <div ref={rightLabelRef} className="bloom-label bloom-label-right" />
 
-      <div className="bloom-controls">
+      <div
+        className={`bloom-controls${controlsVisible ? ' bloom-controls-visible' : ''}`}
+        onMouseEnter={handleControlsMouseEnter}
+        onMouseLeave={handleControlsMouseLeave}
+      >
         <button
           className="bloom-btn"
           disabled={menuOpen}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          onClick={() => { if (!menuOpenRef.current) window.overlayApi.focusMenu(); }}
+          onClick={() => {
+            if (menuOpenRef.current) return;
+            window.overlayApi.focusMenu();
+            window.overlayApi.closeOverlay('bloom');
+          }}
         >
           Menu
         </button>
         <button
           className="bloom-btn bloom-btn-close"
           disabled={menuOpen}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
           onClick={() => { if (!menuOpenRef.current) window.overlayApi.closeOverlay('bloom'); }}
         >
           Close
