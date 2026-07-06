@@ -34,20 +34,15 @@ from audio_capture import (
     rms_to_dbfs,
 )
 from band_direction import BandDirectionEstimator, BandDirections
-from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifier
+from classifier import ClassificationResult, RollingAudioBuffer, YamNetClassifier, canonical_key
 from direction import DirectionEstimate, estimate_direction
 from server import SubtitleServer, build_event
 
 # A persistent sound is only treated as ambience if it's ALSO spatially
-# diffuse (direction confidence below this). A radio/speaker playing music
-# is persistent but still comes from one fixed direction (high confidence),
-# so it's correctly left alone; rain, wind, and crowd murmur are both
-# persistent and diffuse (no single source location), so they get suppressed.
-AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD = 0.4
+# diffuse (direction confidence below this).
+AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD = 0.2
 
-
-def _is_diffuse(direction) -> bool:
-    return (not direction.available) or direction.confidence < AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD
+DIRECTION_CONFIDENCE_SMOOTHING_ALPHA = 0.15
 
 
 def process_block(
@@ -84,6 +79,22 @@ class ClassificationWorker:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self.last_classification: Optional[ClassificationResult] = None
         self.last_band_directions: Optional[BandDirections] = None
+        self.last_ambient_labels: set = set()  # labels suppressed as ambience on the most recent hop
+        self._smoothed_dir_confidence: dict = {}  # canonical group -> EMA of direction confidence
+
+    def _is_diffuse(self, label: str, direction) -> bool:
+        # Keyed by canonical group (not the exact label) so a sound flickering
+        # between synonyms ("Insect"/"Cricket"/"Outside, rural or natural")
+        # shares one smoothed confidence instead of each restarting its own EMA.
+        group = canonical_key(label)
+        raw_confidence = direction.confidence if direction.available else 0.0
+        previous = self._smoothed_dir_confidence.get(group, raw_confidence)
+        smoothed = (
+            DIRECTION_CONFIDENCE_SMOOTHING_ALPHA * raw_confidence
+            + (1 - DIRECTION_CONFIDENCE_SMOOTHING_ALPHA) * previous
+        )
+        self._smoothed_dir_confidence[group] = smoothed
+        return smoothed < AMBIENT_DIRECTION_CONFIDENCE_THRESHOLD
 
     def start(self) -> None:
         self._thread.start()
@@ -113,16 +124,18 @@ class ClassificationWorker:
             self.last_classification = classification
             self.last_band_directions = band_directions
 
+            ambient_labels = set()
             if classification.available:
                 for d in classification.detections:
                     sound_dir = band_directions.for_label(d.label)
                     # Sounds that have been continuously present for a while AND
                     # have no clear source direction (rain, wind, crowd noise, ...)
-                    # are ambience, not a discrete event worth surfacing -- skip
-                    # publishing them so they don't clog the overlay.
-                    if d.is_ambient and _is_diffuse(sound_dir):
+                    # are ambience, not a discrete event worth surfacing.
+                    if d.is_ambient and self._is_diffuse(d.label, sound_dir):
+                        ambient_labels.add(d.label)
                         continue
                     self._server.publish(build_event(d.label, d.confidence, sound_dir))
+            self.last_ambient_labels = ambient_labels
 
 
 def main() -> None:
@@ -191,11 +204,8 @@ def main() -> None:
                             sound_dir = last_band_directions.for_label(d.label)
                             dir_str = sound_dir.label if sound_dir.available else "?"
                         else:
-                            sound_dir = None
                             dir_str = "?"
-                        ambient_str = (
-                            " [ambient]" if d.is_ambient and sound_dir is not None and _is_diffuse(sound_dir) else ""
-                        )
+                        ambient_str = " [ambient]" if d.label in worker.last_ambient_labels else ""
                         parts.append(f"{d.label} ({d.confidence:.2f}) @ {dir_str}{ambient_str}")
                     sound_str = " | ".join(parts)
                 else:

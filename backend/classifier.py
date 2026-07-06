@@ -9,7 +9,7 @@ score, for the overlay to display as subtitle text.
 
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 
@@ -18,7 +18,11 @@ TARGET_SAMPLE_RATE = 16000  # YAMNet's required input rate
 MIN_CONFIDENCE = 0.15
 
 # Cap on how many simultaneous detections get returned per window (for terminal display).
-MAX_DETECTIONS = 3
+# Kept low since near-synonyms are already merged by CANONICAL_GROUPS -- once
+# that's done, only the couple of strongest genuinely distinct sounds matter;
+# a 3rd/4th slot mostly just adds low-confidence noise (stray "Vehicle",
+# "Basketball bounce", etc.) rather than a meaningfully different sound.
+MAX_DETECTIONS = 2
 
 # Smoothing factor for per-class scores across windows, to reduce flicker in the
 # top pick. 0.0 = no smoothing, 1.0 = never update
@@ -41,6 +45,51 @@ EXCLUDED_LABELS = {"Silence"}
 # rather than a discrete event worth surfacing. Short one-off sounds never
 # reach this, so it only catches things that just won't stop.
 AMBIENT_PERSISTENCE_SECONDS = 4.0
+
+AMBIENT_GRACE_SECONDS = 1.5
+
+# YAMNet's ontology has many overlapping/near-synonymous labels for the same
+# real-world sound (a passing car can flicker between "Vehicle", "Motor
+# vehicle (road)", and "Car" hop to hop; distant nature ambience flickers
+# between "Insect", "Cricket", "Outside, rural or natural", "Wild animals").
+CANONICAL_GROUPS: Dict[str, List[str]] = {
+    "vehicle": [
+        "Vehicle", "Motor vehicle (road)", "Car", "Truck", "Bus", "Motorcycle",
+        "Traffic noise, roadway noise", "Race car, auto racing", "Skateboard",
+    ],
+    "speech": [
+        "Speech", "Child speech, kid speaking", "Conversation",
+        "Narration, monologue", "Babbling", "Shout", "Whispering",
+    ],
+    "insect_ambience": [
+        "Insect", "Cricket", "Outside, rural or natural", "Wild animals", "Animal",
+    ],
+    "footsteps": ["Walk, footsteps", "Run", "Clip-clop", "Horse", "Gallop"],
+    "gunfire": ["Gunshot, gunfire", "Machine gun", "Fusillade", "Explosion", "Artillery fire", 
+            "Fireworks", "Eruption", "Boom", "Crackle", "Fire",],
+    "music": ["Music", "Percussion", "Piano", "Guitar", "Drum", "Singing"],
+}
+
+LABEL_TO_GROUP: Dict[str, str] = {
+    label: group for group, labels in CANONICAL_GROUPS.items() for label in labels
+}
+
+# The label actually surfaced for a group must stay stable across hops, even
+# though which raw synonym scores highest can flip hop to hop (e.g. "Gunshot,
+# gunfire" one hop, "Fusillade" the next).
+GROUP_DISPLAY_LABEL: Dict[str, str] = {
+    group: labels[0] for group, labels in CANONICAL_GROUPS.items()
+}
+
+
+def canonical_key(label: str) -> str:
+    # Labels with no known group are their own group of one, so they're never
+    # merged with anything else.
+    return LABEL_TO_GROUP.get(label, label)
+
+
+# Groups that are always ambience, regardless of persistence or direction.
+ALWAYS_AMBIENT_GROUPS: Set[str] = {"insect_ambience", "basketball bounce"}
 
 
 @dataclass
@@ -125,7 +174,8 @@ class YamNetClassifier:
         self._class_names: List[str] = []
         self._smoothed_scores: Optional[np.ndarray] = None  # persists across classify() calls
         self._sticky_leader_idx: Optional[int] = None  # persists across classify() calls
-        self._active_since: Dict[int, float] = {}  # class idx -> monotonic time it became continuously active
+        self._active_since: Dict[str, float] = {}  # canonical group -> monotonic time it became continuously active
+        self._last_active_at: Dict[str, float] = {}  # canonical group -> monotonic time last seen above MIN_CONFIDENCE
         self._excluded_idx: set = set()  # class indices for EXCLUDED_LABELS, populated in _ensure_loaded
 
     def _ensure_loaded(self) -> None:
@@ -181,31 +231,59 @@ class YamNetClassifier:
         above_threshold = {
             int(idx) for idx in order if float(self._smoothed_scores[idx]) >= MIN_CONFIDENCE
         }
-        # Start/stop the continuous-activity clock for each label so persistent
+        # Persistence is tracked per canonical group rather than per exact label,
+        # so a sound that flickers between near-synonyms (e.g. "Insect" one hop,
+        # "Cricket" the next) still accumulates one continuous streak instead of
+        # each synonym separately resetting the other's clock.
+        active_groups = {canonical_key(self._class_names[idx]) for idx in above_threshold}
+
+        # Start/stop the continuous-activity clock for each group so persistent
         # background sound (ambience) can be told apart from discrete events.
-        for idx in above_threshold:
-            if idx not in self._active_since:
-                self._active_since[idx] = now
-        for idx in list(self._active_since):
-            if idx not in above_threshold:
-                del self._active_since[idx]
+        # A brief dip below MIN_CONFIDENCE doesn't reset the streak -- only a
+        # gap longer than AMBIENT_GRACE_SECONDS does -- so naturally noisy but
+        # genuinely continuous ambience (crickets, wind) still accumulates.
+        for group in active_groups:
+            if group not in self._active_since:
+                self._active_since[group] = now
+            self._last_active_at[group] = now
+        for group in list(self._active_since):
+            if group not in active_groups and now - self._last_active_at[group] > AMBIENT_GRACE_SECONDS:
+                del self._active_since[group]
+                del self._last_active_at[group]
 
         detections: List[SoundDetection] = []
-        for idx in order[:MAX_DETECTIONS]:
+        detection_groups: List[str] = []  # parallel to `detections`, for leader matching below
+        seen_groups: Set[str] = set()
+        for idx in order:
             confidence = float(self._smoothed_scores[idx])
             if confidence < MIN_CONFIDENCE:
                 break
-            active_seconds = now - self._active_since[int(idx)]
+            label = self._class_names[idx]
+            group = canonical_key(label)
+            # Only the strongest label per canonical group is surfaced each hop,
+            # so near-synonyms (Vehicle/Motor vehicle (road)/Car, ...) don't show
+            # up as separate simultaneous detections for the same real sound.
+            if group in seen_groups:
+                continue
+            seen_groups.add(group)
+            active_seconds = now - self._active_since[group]
+            is_ambient = group in ALWAYS_AMBIENT_GROUPS or active_seconds >= AMBIENT_PERSISTENCE_SECONDS
+            # Always surface the group's fixed display label, not whichever raw
+            # synonym happened to win this hop -- see GROUP_DISPLAY_LABEL.
+            display_label = GROUP_DISPLAY_LABEL.get(group, label)
             detections.append(SoundDetection(
-                label=self._class_names[idx],
+                label=display_label,
                 confidence=confidence,
                 active_seconds=active_seconds,
-                is_ambient=active_seconds >= AMBIENT_PERSISTENCE_SECONDS,
+                is_ambient=is_ambient,
             ))
+            detection_groups.append(group)
+            if len(detections) >= MAX_DETECTIONS:
+                break
 
-        leader_label = self._class_names[self._sticky_leader_idx]
-        for i, detection in enumerate(detections):
-            if detection.label == leader_label and i != 0:
+        leader_group = canonical_key(self._class_names[self._sticky_leader_idx])
+        for i, group in enumerate(detection_groups):
+            if group == leader_group and i != 0:
                 detections.insert(0, detections.pop(i))
                 break
 
